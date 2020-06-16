@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" filePermissions="416" folderPermissions="488">
+    <serverData>
+      <paths name="General ASU (4a2785ed-d2a6-4c90-ab50-38255b190be9)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/tmp.JPZqoYhaUr" local="$PROJECT_DIR$" />
+          </mappings>
+          <excludedPaths>
+            <excludedPath local="true" path="$PROJECT_DIR$/cmake-build-debug-general-asu" />
+            <excludedPath local="true" path="$PROJECT_DIR$/cmake-build-relwithdebinfo-general-asu" />
+            <excludedPath local="true" path="$PROJECT_DIR$/cmake-build-debug-brew-gcc" />
+          </excludedPaths>
+        </serverdata>
+      </paths>
+    </serverData>
+  </component>
+</project>
