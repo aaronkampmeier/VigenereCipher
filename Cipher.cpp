@@ -14,7 +14,7 @@
 // Defines how many blocks are on a line when using BLOCKED
 #define BLOCK_CIPHER_LINE_GROUPS 6
 
-// For Profiling the speed of the cipher
+// For Profiling the speed of the cipher. Switch to 1 to build for profiling, switch to 0 to build for normal op.
 #define PROFILING 0
 
 #include <iostream>
@@ -235,6 +235,7 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 	
 	// Loop through reading the file in buffers, ciphering, and writing it out
 	do {
+		// Read the file into a buffer
 		validReadChunks = fread(readBuffer, sizeof(char), sizeof(readBuffer), inFile); //Returns how much was read
 		
 		
@@ -324,7 +325,7 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 	
 	// Send back the number of bytes processed
 	if (bytesProcessed != nullptr) {
-		*bytesProcessed = processedBuffers * sizeof(readBuffer);
+		*bytesProcessed = (processedBuffers - 1) * sizeof(readBuffer) + validReadChunks;
 	}
 	
 	if (operation == ENCIPHER_BLOCKED) {
@@ -429,7 +430,7 @@ void profileFile(char testDir[], char testOutputDir[], char testName[]) {
 	
 	// Clear the arrays
 	for (int k=0; k < numOfKeys; k++) {
-		punctuatedAverages[k] = punctuatedAverages[k] = 0;
+		punctuatedAverages[k] = blockedAverages[k] = 0;
 	}
 	
 	for (int k=0; k < numOfKeys; k++) {
@@ -468,9 +469,20 @@ void profileFile(char testDir[], char testOutputDir[], char testName[]) {
 	}
 	decipherAverage /= numOfTests;
 	cout << "Average deciphering time was " << decipherAverage << " microseconds or " << (decipherAverage /
-	1000000) << "seconds." << endl;
+	1000000) << " seconds." << endl;
 	cout << "Each deciphering processed " << bytesProcessed << " bytes." << endl;
 	
+	
+	// Cleanup
+	delete[] testPath;
+	delete[] outputPath;
+	delete[] decipherOutputPath;
+	for (int k=0; k < numOfKeys; k++) {
+		delete[] keys[k];
+	}
+	delete[] keys;
+	delete[] punctuatedAverages;
+	delete[] blockedAverages;
 }
 
 /**
