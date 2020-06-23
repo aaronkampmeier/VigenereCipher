@@ -14,8 +14,8 @@
 // Defines how many blocks are on a line when using BLOCKED
 #define BLOCK_CIPHER_LINE_GROUPS 6
 
-// For Profiling
-#define PROFILING 1
+// For Profiling the speed of the cipher
+#define PROFILING 0
 
 #include <iostream>
 #include <cstring>
@@ -32,11 +32,16 @@ using namespace std;
 enum CipherOperation {ENCIPHER_PUNCTUATED, ENCIPHER_BLOCKED, DECIPHER, UNDEFINED};
 
 
-bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputFile);
+bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputFile, int *bytesProcessed = nullptr);
 CipherOperation convertStrToOp(const char *strOp);
 
 #if PROFILING
 void profileCipher();
+int randInBound(int lower, int upper);
+void profileFile(char testDir[], char testOutputDir[], char testName[]);
+float timeCipherOperation(CipherOperation operation, char *key, char *inputFile, char *outputFile, int
+*bytesProcessed = nullptr);
+char* concatStrings(char str1[], char str2[]);
 #endif
 
 /**
@@ -62,15 +67,15 @@ int main(int argc, char** argv) {
 #endif
 	
 	CipherOperation operation = UNDEFINED;
-	char* inFileName = nullptr;
-	char* outFileName = nullptr;
-	char* key = nullptr;
+	char *inFileName = nullptr;
+	char *outFileName = nullptr;
+	char *key = nullptr;
 	
 	
 	// Check each command line argument, one by one
-	for(int argi = 1; argi < argc; argi++) {
+	for (int argi = 1; argi < argc; argi++) {
 		// Check this argument against our known arguments
-		char* arg = argv[argi];
+		char *arg = argv[argi];
 		switch (argi) {
 			case 1:
 				// Operation
@@ -121,13 +126,19 @@ int main(int argc, char** argv) {
 		cin.getline(outFileName, 100);
 	}
 	
- 
+	
 	// Perform the operation
 	bool success = cipher(operation, key, inFileName, outFileName);
 	
-	delete[] key;
-	delete[] inFileName;
-	delete[] outFileName;
+	if (argc < 3) {
+		delete[] key;
+	}
+	if (argc < 4) {
+		delete[] inFileName;
+	}
+	if (argc < 5) {
+		delete[] outFileName;
+	}
 	
 	return !success;
 }
@@ -159,9 +170,15 @@ CipherOperation convertStrToOp(const char *strOp) {
  * @param key The key
  * @param inputFile The file to read from
  * @param outputFile The file to write to, will overwrite current file if one exists.
+ * @param bytesProcessed Pointer to an int to store the number of bytes processed. Can be NULL.
  * @return Successful
  */
-bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputFile) {
+bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputFile, int *bytesProcessed) {
+	if (operation == UNDEFINED) {
+		cerr << "Undefined cipher operation." << endl;
+		return false;
+	}
+	
 	// Open the files to work with
 	FILE* inFile = fopen(inputFile, "r");
 	FILE* outFile = fopen(outputFile, "w");
@@ -179,6 +196,8 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 	// different one with extra padding.
 	char* writeBuffer;
 	switch (operation) {
+		case UNDEFINED:
+			break;
 		case DECIPHER:
 		case ENCIPHER_PUNCTUATED:
 			// Write in place to the same buffer
@@ -242,9 +261,10 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 			// right.
 			// Next, normalize 'A' down to 0 and mod by 26 to loop any chars past Z back to the letters and
 			// re-convert back to ASCII by adding 65.
-			//4. Write cipher txt char back to write buffer
 			if (isalpha(readBuffer[bufferReadIndex])) {
 				switch (operation) {
+					case UNDEFINED:
+						break;
 					case ENCIPHER_BLOCKED:
 					case ENCIPHER_PUNCTUATED:
 						writeBuffer[bufferWriteIndex] = (toupper(readBuffer[bufferReadIndex]) + keyOffset - 65) % 26 + 65;
@@ -287,13 +307,13 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 			
 		}
 		
-		
+		//4. Write cipher txt char back to write buffer
 		//-----Write buffer out to file-----
 		validWriteChunks = fwrite(writeBuffer, sizeof(char), bufferWriteIndex, outFile);
 		
 		// Check that everything wrote successfully
 		if (validWriteChunks != bufferWriteIndex * sizeof(char)) {
-			cerr << "Error writing to ouput file." << endl;
+			cerr << "Error writing to output file." << endl;
 			return false;
 //			exit(FILE_OUT_ERROR_EXIT);
 		}
@@ -301,6 +321,11 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 		processedBuffers++;
 	} while (validReadChunks == sizeof(readBuffer)); //Once valid read chunks is less than the whole buffer, we've
 	// reached the end of the file
+	
+	// Send back the number of bytes processed
+	if (bytesProcessed != nullptr) {
+		*bytesProcessed = processedBuffers * sizeof(readBuffer);
+	}
 	
 	if (operation == ENCIPHER_BLOCKED) {
 		delete[] writeBuffer;
@@ -314,8 +339,173 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
 }
 
 #if PROFILING
+#include <chrono>
+#include <sys/types.h>
+#include <dirent.h>
+/**
+ * Runs a series of long enciphers and deciphers to test the speed of this program. Runs through all files in the
+ * Tests/Plaintext directory as test cases.
+ */
 void profileCipher() {
-
+	cout << "Beginning profiling of Cipher" << endl;
+	cout << "Please make sure you have a 'Tests/Plaintext/' dir and a 'Tests/Profiling Ouput/' dir" << endl;
+	
+	char testDir[] = "Tests/Plaintext/";
+	char testOutputDir[] = "Tests/Profiling Output/";
+	
+	// Since I couldn't get std::filesystem to work I am using these POSIX file commands from here: https://pubs.opengroup.org/onlinepubs/7908799/xsh/readdir.html
+	DIR *directoryPtr = opendir(testDir);
+	dirent *dirEntry;
+	errno = 0;
+	
+	while ((dirEntry = readdir(directoryPtr)) != nullptr) {
+		// Skip the "." and ".." entries in the directory if they exist
+		if ((strcmp(dirEntry->d_name, ".") != 0) && (strcmp(dirEntry->d_name, "..") != 0)) {
+			
+			profileFile(testDir, testOutputDir, dirEntry->d_name);
+			
+		}
+	}
+	
+	if (errno != 0) {
+		// There was an error reading the directory
+		cerr << "There was an error reading the " << testDir << " directory: " << errno << endl;
+	}
+	
+	closedir(directoryPtr);
+	
+	cout << "\n\nPlease now manually check if the files were en/deciphered correctly." << endl;
+	
 }
-#endif
 
+/**
+ * Returns a random number between the two bounds
+ * @param lower Lower bound inclusive
+ * @param upper Upper bound exclusive
+ * @return A random int
+ */
+int randInBound(int lower, int upper) {
+	return ((float) rand() / RAND_MAX) * (upper - lower) + lower;
+}
+
+/**
+ * Runs a specified test file through a series of tests:
+ * 1. 10 enciphers punctuated with key lengths 2, 7, and 100
+ * 2. 10 enciphers blocked with key lengths 2, 7, 100
+ * 3. 10 deciphers with key lengths 2, 7, 100
+ * @param testDir
+ */
+void profileFile(char testDir[], char testOutputDir[], char testName[]) {
+	cout << "\n\nTesting with input file " << testName << endl;
+	
+	// Append the name onto the test directory path
+	char *testPath = concatStrings(testDir, testName);
+	
+	char *outputPath = concatStrings(testOutputDir, testName);
+	
+	// To test each operation with multiple key lengths, put those different lengths in here. To be clear: key length
+	// shouldn't really affect the cipher algorithm which is what this can verify
+	int keyLengths[3] = {2, 7, 100};
+	const int numOfKeys = sizeof(keyLengths) / sizeof(int);
+	char **keys = new char*[numOfKeys];
+	
+	// Fill the keys with random chars
+	for(int k=0; k < numOfKeys; k++) {
+		keys[k] = new char[keyLengths[k] + 1];
+		keys[k][keyLengths[k]] = '\0';
+		
+		for (int i = 0; i < keyLengths[k]; i++) {
+			keys[k][i] = randInBound('a', 'z' + 1);
+		}
+	}
+	
+	const int numOfTests = 10;
+	
+	// Perform the 10 encipher punctuated with each key and 10 encipher blocked with each key
+	float *punctuatedAverages = new float[numOfKeys];
+	float *blockedAverages = new float[numOfKeys];
+	
+	int bytesProcessed = 0;
+	
+	// Clear the arrays
+	for (int k=0; k < numOfKeys; k++) {
+		punctuatedAverages[k] = punctuatedAverages[k] = 0;
+	}
+	
+	for (int k=0; k < numOfKeys; k++) {
+		cout << "Testing ENCIPHER_PUNCTUATED with random key of length: " << keyLengths[k] << endl;
+		
+		for (int i=0; i < numOfTests; i++) {
+			punctuatedAverages[k] += timeCipherOperation(ENCIPHER_PUNCTUATED, keys[k], testPath, outputPath, &bytesProcessed);
+		}
+		punctuatedAverages[k] /= numOfTests;
+		
+		cout << "Average for key length " << keyLengths[k] << " is " << punctuatedAverages[k] << " microseconds or " <<
+			 (punctuatedAverages[k] / (float) 1000000) << " seconds." << endl;
+	}
+	
+	for (int k=0; k < numOfKeys; k++) {
+		cout << "Testing ENCIPHER_BLOCKED with random key of length " << keyLengths[k] << endl;
+		
+		for (int i=0; i < numOfTests; i++) {
+			blockedAverages[k] += timeCipherOperation(ENCIPHER_BLOCKED, keys[k], testPath, outputPath, &bytesProcessed);
+		}
+		blockedAverages[k] /= numOfTests;
+		
+		cout << "Average for key length " << keyLengths[k] << " is " << blockedAverages[k] << " microseconds or " <<
+			 (blockedAverages[k] / (float) 1000000) << " seconds." << endl;
+	}
+	
+	cout << "Each enciphering processed " << bytesProcessed << " bytes." << endl;
+	
+	// Test deciphering just with the last key
+	cout << "\nTesting DECIPHER with key of length " << keyLengths[numOfKeys - 1] << endl;
+	char outputExtension[] = ".deciphered";
+	char *decipherOutputPath = concatStrings(outputPath, outputExtension);
+	float decipherAverage = 0;
+	for (int i=0; i < numOfTests; i++) {
+		decipherAverage += timeCipherOperation(DECIPHER, keys[numOfKeys - 1], outputPath, decipherOutputPath, &bytesProcessed);
+	}
+	decipherAverage /= numOfTests;
+	cout << "Average deciphering time was " << decipherAverage << " microseconds or " << (decipherAverage /
+	1000000) << "seconds." << endl;
+	cout << "Each deciphering processed " << bytesProcessed << " bytes." << endl;
+	
+}
+
+/**
+ * The lowest wrapper above the cipher method that times how long an operation takes
+ * @param operation
+ * @param key
+ * @param inputFile
+ * @param outputFile
+ * @return The time in microseconds of how long the operation took
+ */
+float timeCipherOperation(CipherOperation operation, char *key, char *inputFile, char *outputFile, int
+*bytesProcessed) {
+	auto startTime = chrono::high_resolution_clock::now();
+	
+	// Call cipher
+	cipher(operation, key, inputFile, outputFile, bytesProcessed);
+	
+	auto stopTime = chrono::high_resolution_clock::now();
+	
+	auto duration = chrono::duration_cast<chrono::microseconds>(stopTime - startTime);
+	return duration.count();
+}
+
+/**
+ * Creates a new char[] and copies the two specified strings to it
+ * @param str1
+ * @param str2
+ * @return A new char[]
+ */
+char *concatStrings(char *str1, char *str2) {
+	char *newString = new char[strlen(str1) + strlen(str2) + 1];
+	strcpy(newString, str1);
+	// Directory entry name goes at the end of the directory path accomplished using pointer math
+	strcpy(newString + strlen(str1), str2);
+	return newString;
+}
+
+#endif
