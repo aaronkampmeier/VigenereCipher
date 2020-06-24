@@ -2,6 +2,13 @@
 <project version="4">
   <component name="PublishConfigData" filePermissions="416" folderPermissions="488">
     <serverData>
+      <paths name="General ASU">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/CSE 240/Cipher/" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="General ASU (4a2785ed-d2a6-4c90-ab50-38255b190be9)">
         <serverdata>
           <mappings>

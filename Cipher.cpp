@@ -348,6 +348,7 @@ bool cipher(CipherOperation operation, char *key, char *inputFile, char *outputF
  * Tests/Plaintext directory as test cases.
  */
 void profileCipher() {
+	srand(time(nullptr));
 	cout << "Beginning profiling of Cipher" << endl;
 	cout << "Please make sure you have a 'Tests/Plaintext/' dir and a 'Tests/Profiling Ouput/' dir" << endl;
 	
